@@ -6,7 +6,7 @@ name: oxlint
 
 on:
   schedule:
-    - cron: '56 */6 * * *'
+    - cron: '0 0-23/6 * * *'
   workflow_dispatch:
   push:
     branches: [main]

@@ -231,7 +231,7 @@ versions:
   new_per_run: 5
   # Without a poll_interval the generated workflow has NO `schedule:` trigger
   # at all and the mirror never auto-discovers a release.
-  poll_interval: "56 */6 * * *"
+  poll_interval: "0 0-23/6 * * *"
 
 skip_prereleases: true
 cascade: true
