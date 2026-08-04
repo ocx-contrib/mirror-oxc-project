@@ -1,0 +1,14 @@
+{
+  "type": "bundle",
+  "version": 1,
+  "binaries": ["oxlint-x86_64-unknown-linux-musl"],
+  "env": [
+    {
+      "key": "PATH",
+      "type": "path",
+      "required": true,
+      "value": "${installPath}",
+      "visibility": "public"
+    }
+  ]
+}

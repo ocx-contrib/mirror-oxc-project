@@ -1,0 +1,249 @@
+name: oxlint
+
+# Logical index package `oxc-project/oxlint` at the physical path
+# `ghcr.io/ocx-contrib/oxc-project/oxlint` — slash segments, never
+# hyphen-flattened, two segments always. `oxc-project` is the org handle AND
+# the project's own brand (skill Phase 1 rule 2), and the org plausibly holds
+# more than one OCX package: the same release train also ships `oxfmt`, which
+# would land as `oxc-project/oxfmt` in this same repo. The first path segment
+# must be this repo's own GitHub owner — GITHUB_TOKEN only authorises packages
+# owned by the repo the workflow runs in.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/oxc-project/oxlint
+
+source:
+  type: github_release
+  owner: oxc-project
+  repo: oxc
+  # ─── MONOREPO TAG SPLIT — the `apps_` prefix is load-bearing ──────────────
+  #
+  # oxlint has no repo of its own (`gh api repos/oxc-project/oxlint` → 404);
+  # it is released from the `oxc` monorepo, which publishes TWO interleaved
+  # tag trains:
+  #
+  #   $ gh api "repos/oxc-project/oxc/releases?per_page=30" \
+  #       --jq '.[] | "\(.tag_name)\t\(.assets|length)"'
+  #   apps_v1.77.0     32
+  #   crates_v0.142.0   0      <-- Rust crate-publish marker, ZERO assets
+  #   apps_v1.76.0     32
+  #   crates_v0.141.0   0
+  #   … (pattern holds for all 30 sampled releases)
+  #
+  # A `crates_v*` release that matched would be an asset-less version, which
+  # the pipeline SILENTLY DROPS — a hole nothing reds on. The `apps_v` prefix
+  # plus the `$` anchor is what keeps that train out. `skip_prereleases: true`
+  # below is an independent second guard, but it would not have caught this:
+  # the `crates_` releases are not marked prerelease.
+  tag_pattern: "^apps_v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+# ─── VERSION IDENTITY — checked, not assumed ────────────────────────────────
+#
+# `apps_vX.Y.Z` is a monorepo-wide release-train version shared with oxfmt, so
+# "tag 1.77.0 ⇒ oxlint reports 1.77.0" needed proving rather than believing:
+#
+#   $ tar xf oxlint-x86_64-unknown-linux-gnu.tar.gz   # from tag apps_v1.77.0
+#   $ ./oxlint-x86_64-unknown-linux-gnu --version
+#   Version: 1.77.0
+#
+#   ⇒ the app train and oxlint's own version agree. tests/smoke.star asserts
+#     the version SHAPE on every leg, so a future divergence in FORM reds;
+#     the exact-value check above is a one-off and is recorded here as such.
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# `os.features` states what the artifact REQUIRES OF THE HOST, never how it was
+# built. Upstream ships BOTH a `-gnu` and a `-musl` Linux build per arch, so
+# the filename decides nothing — PT_INTERP does. Measured on all four Linux
+# artifacts of apps_v1.77.0:
+#
+#   $ file oxlint-x86_64-unknown-linux-musl
+#   ELF 64-bit LSB pie executable, x86-64, … static-pie linked, stripped
+#   $ file oxlint-aarch64-unknown-linux-musl
+#   ELF 64-bit LSB executable, ARM aarch64, … statically linked, stripped
+#   $ readelf -l oxlint-{x86_64,aarch64}-unknown-linux-musl | grep -c INTERP
+#   0   (both)
+#
+#   $ file oxlint-x86_64-unknown-linux-gnu
+#   … dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, GNU/Linux 2.6.32
+#   $ file oxlint-aarch64-unknown-linux-gnu
+#   … dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, GNU/Linux 3.7.0
+#   $ readelf -V oxlint-{x86_64,aarch64}-unknown-linux-gnu | grep -o 'GLIBC_[0-9.]*' \
+#       | sort -uV | tail -1      →  GLIBC_2.18 (both arches)
+#
+#   ⇒ the musl builds require NOTHING of the host → BARE `linux/amd64` and
+#     `linux/arm64` keys. The alpine container leg below is what turns that
+#     universality claim into evidence rather than an assertion.
+#
+# The static reading was CHECKED FOR A UPX STUB before being believed — a
+# packed binary shows no PT_INTERP either, so `file` calls a glibc-dynamic
+# build "statically linked" and the gate yields a false universality claim:
+#
+#   $ strings -a oxlint-*-unknown-linux-*  | grep -c '^UPX'   → 0 (all four)
+#   $ readelf -h … | grep 'Start of section headers'
+#   Start of section headers: 17767392 / 14928856 / …   (non-zero for all four)
+#
+#   ⇒ not packed; the static reading stands.
+#
+# ─── WHY THE `-gnu` BUILDS ARE DELIBERATELY NOT DECLARED ────────────────────
+#
+# Publishing bare + `+libc.glibc` side by side is supported and safe, but two
+# keys is the fallback, not the goal — it is worth it only where the gnu build
+# carries capability the static one lacks. Neither of the two usual reasons
+# applies, and one hard constraint forbids it here:
+#
+#  1. NO REACHABLE BEHAVIOURAL DELTA. The classic one is DNS: a static musl
+#     binary uses musl's resolver, ignores nsswitch.conf and loads no NSS
+#     modules. oxlint is a local-filesystem linter — it opens files and prints
+#     diagnostics. It never resolves a name.
+#  2. NO PERFORMANCE DELTA. musl's allocator is the other usual reason, and
+#     oxlint is a performance-branded tool, so this was measured rather than
+#     waved away — 2000-file lint, same machine, warmed:
+#       oxlint-x86_64-unknown-linux-gnu  : 49 ms
+#       oxlint-x86_64-unknown-linux-musl : 47 ms
+#     (oxc bundles its own allocator, so musl's is never on the hot path.)
+#  3. THE SMOKE TEST COULD NOT TELL THE TWO APART. Upstream names the binary
+#     inside each archive after its own target triple (see below), so the
+#     artifact's on-PATH name differs between the gnu and musl builds of the
+#     SAME os/arch — and `ocx.target_platform` exposes `.os` and `.arch` only,
+#     never the `+libc.*` feature. One smoke.star therefore cannot name the
+#     binary it is supposed to run on `linux/amd64` once both keys exist. A
+#     `+libc.glibc` key here would be a leg that cannot be tested honestly.
+#
+# ─── ARCHES ocx CANNOT EXPRESS ──────────────────────────────────────────────
+#
+# Upstream ships 16 oxlint artifacts per release. ocx's `Architecture` enum is
+# amd64 + arm64 only and its `OperatingSystem` enum is linux/darwin/windows
+# only, so these upstream assets are NOT declarable platforms and their absence
+# is not a gap: armv7-…-gnueabihf, armv7-…-musleabihf, i686-pc-windows-msvc
+# (386), powerpc64le, riscv64gc (gnu + musl), s390x, x86_64-unknown-freebsd.
+# The six keys below are the complete declarable set.
+
+assets:
+  # ─── PREFIX FILTER IS THE WHOLE GAME ──────────────────────────────────────
+  #
+  # A single `apps_vX.Y.Z` release carries 32 assets: 16 `oxlint-<triple>` AND
+  # 16 `oxfmt-<triple>` — a DIFFERENT tool, under IDENTICAL target triples.
+  # Any pattern anchored on the triple alone double-matches every platform,
+  # which is a hard ambiguous-match error. The leading `^oxlint-` is what
+  # excludes the oxfmt twin; the trailing `$` is what keeps a pattern from
+  # prefix-matching a future sidecar. Both anchors are load-bearing.
+  #
+  # Verified BOTH WAYS on EVERY in-range release (apps_v1.75.0, v1.76.0,
+  # v1.77.0): each pattern below matches EXACTLY ONE asset — 0 matches would
+  # be a silently skipped platform, >1 a hard error.
+  linux/amd64: ["^oxlint-x86_64-unknown-linux-musl\\.tar\\.gz$"]
+  linux/arm64: ["^oxlint-aarch64-unknown-linux-musl\\.tar\\.gz$"]
+  # Pass 2 — darwin. Commented in BOTH `assets:` and `platforms:` until then:
+  # an unmatched platform self-skips per VERSION but still boots its runner and
+  # greens having tested nothing.
+  # darwin/amd64: ["^oxlint-x86_64-apple-darwin\\.tar\\.gz$"]
+  # darwin/arm64: ["^oxlint-aarch64-apple-darwin\\.tar\\.gz$"]
+  # Pass 3 — windows (.zip, not .tar.gz).
+  # windows/amd64: ["^oxlint-x86_64-pc-windows-msvc\\.zip$"]
+  # windows/arm64: ["^oxlint-aarch64-pc-windows-msvc\\.zip$"]
+
+# ─── ARCHIVE LAYOUT — flat, ONE file, named after the TARGET TRIPLE ─────────
+#
+#   $ tar tvf oxlint-x86_64-unknown-linux-musl.tar.gz
+#   -rwxr-xr-x runner/runner 17769056 …  oxlint-x86_64-unknown-linux-musl
+#   $ unzip -l oxlint-x86_64-pc-windows-msvc.zip
+#    15782912  …  oxlint-x86_64-pc-windows-msvc.exe
+#
+# Every archive holds exactly one member, at the archive ROOT, with NO wrapper
+# directory and NO `bin/` — identical at both ends of the range (checked on
+# apps_v1.75.0 and apps_v1.77.0). So `strip_components: 0` (there is nothing to
+# strip; 1 would DELETE the binary) and the metadata PATH is the bare
+# `${installPath}`. A bare PATH is only legal with `bin_scan: off`, which is
+# why `binaries` below is hand-listed per platform.
+#
+# ⚠ THE BINARY IS NOT CALLED `oxlint`. Upstream names the archive member after
+# its own target triple, and NOTHING in the pipeline renames an archive member:
+# `asset_type: binary` has a `name:` field, `asset_type: archive` has none, and
+# `strip_components` only removes leading path components. So this package puts
+# `oxlint-<triple>` on PATH — that is what upstream ships, declared honestly.
+# `metadata.platforms` therefore carries one file per platform, each naming its
+# own triple. See CATALOG.md, which states the command name for consumers.
+asset_type:
+  type: archive
+  strip_components: 0
+
+# QUOTED DELIBERATELY: unquoted `off` is a YAML 1.1 BOOLEAN (false), and the
+# spec then fails to load with the wholly misleading `missing field ` + "`name`".
+bin_scan: "off"
+
+metadata:
+  # `default` is the linux/amd64 shape; every declared platform is listed
+  # explicitly below because the binary NAME differs per platform.
+  default: metadata.json
+  platforms:
+    linux/arm64: metadata-linux-arm64.json
+    # darwin/amd64: metadata-darwin-amd64.json
+    # darwin/arm64: metadata-darwin-arm64.json
+    # windows/amd64: metadata-windows-amd64.json
+    # windows/arm64: metadata-windows-arm64.json
+
+catalog:
+  logo: ../logo.svg
+
+platforms:
+  # Bare (static-claiming) Linux key ⇒ ubuntu + alpine + fedora, glibc twice
+  # and musl once. The alpine leg is the ONLY evidence that "requires nothing
+  # of the host" is honest; drop it and the claim goes back to being asserted.
+  # No `containers[].setup` anywhere: oxlint shells out to nothing (no git, no
+  # tar, no ssh) and links nothing beyond the kernel, so a stock image is the
+  # honest claim and provisioning one would prove less.
+  linux/amd64:
+    runner: ubuntu-latest
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20", shell: sh }
+      - { image: "fedora:40", shell: bash }
+  linux/arm64:
+    runner: ubuntu-24.04-arm      # arm64 legs run natively — no qemu
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20", shell: sh }
+      - { image: "fedora:40", shell: bash }
+  # Pass 2 — darwin. `macos-14` for BOTH slices (the amd64 one tests under
+  # Rosetta 2); never native `macos-13`, whose exhausted pool deadlocks push.
+  # darwin/amd64:
+  #   runner: macos-14
+  # darwin/arm64:
+  #   runner: macos-14
+  # Pass 3 — windows.
+  # windows/amd64:
+  #   runner: windows-latest
+  # windows/arm64:
+  #   runner: windows-11-arm
+
+tests:
+  # `script:` resolves from the REPOSITORY ROOT, unlike `metadata`/`catalog`
+  # just above, which resolve from this spec's own directory.
+  - name: smoke
+    script: oxlint/tests/smoke.star
+
+versions:
+  min: "1.75.0"
+  new_per_run: 5
+  # Without a poll_interval the generated workflow has NO `schedule:` trigger
+  # at all and the mirror never auto-discovers a release.
+  poll_interval: "56 */6 * * *"
+
+skip_prereleases: true
+cascade: true
+build_timestamp: date
+
+verify:
+  github_asset_digest: true
+
+annotations:
+  org.opencontainers.image.licenses: MIT
+
+announce:
+  package: oxc-project/oxlint
+  fork: ocx-contrib/index
+
+notify:
+  discord:
+    webhook_secret: OCX_MIRROR_DISCORD_HOOK
