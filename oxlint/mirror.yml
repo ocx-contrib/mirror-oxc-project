@@ -140,8 +140,8 @@ assets:
   darwin/amd64: ["^oxlint-x86_64-apple-darwin\\.tar\\.gz$"]
   darwin/arm64: ["^oxlint-aarch64-apple-darwin\\.tar\\.gz$"]
   # Pass 3 — windows (.zip, not .tar.gz).
-  # windows/amd64: ["^oxlint-x86_64-pc-windows-msvc\\.zip$"]
-  # windows/arm64: ["^oxlint-aarch64-pc-windows-msvc\\.zip$"]
+  windows/amd64: ["^oxlint-x86_64-pc-windows-msvc\\.zip$"]
+  windows/arm64: ["^oxlint-aarch64-pc-windows-msvc\\.zip$"]
 
 # ─── ARCHIVE LAYOUT — flat, ONE file, named after the TARGET TRIPLE ─────────
 #
@@ -180,8 +180,8 @@ metadata:
     linux/arm64: metadata-linux-arm64.json
     darwin/amd64: metadata-darwin-amd64.json
     darwin/arm64: metadata-darwin-arm64.json
-    # windows/amd64: metadata-windows-amd64.json
-    # windows/arm64: metadata-windows-arm64.json
+    windows/amd64: metadata-windows-amd64.json
+    windows/arm64: metadata-windows-arm64.json
 
 catalog:
   logo: ../logo.svg
@@ -211,11 +211,14 @@ platforms:
     runner: macos-14
   darwin/arm64:
     runner: macos-14
-  # Pass 3 — windows.
-  # windows/amd64:
-  #   runner: windows-latest
-  # windows/arm64:
-  #   runner: windows-11-arm
+  # `windows-11-arm` is the arm64 runner; `windows-latest` is amd64-only. The
+  # zip member already carries `.exe` (verified by a windows-only temp-spec
+  # `pipeline prepare` before any runner was spent), so no name override is
+  # needed — tests/smoke.star branches to the `.exe` name on Windows.
+  windows/amd64:
+    runner: windows-latest
+  windows/arm64:
+    runner: windows-11-arm
 
 tests:
   # `script:` resolves from the REPOSITORY ROOT, unlike `metadata`/`catalog`
