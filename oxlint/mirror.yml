@@ -137,8 +137,8 @@ assets:
   # Pass 2 — darwin. Commented in BOTH `assets:` and `platforms:` until then:
   # an unmatched platform self-skips per VERSION but still boots its runner and
   # greens having tested nothing.
-  # darwin/amd64: ["^oxlint-x86_64-apple-darwin\\.tar\\.gz$"]
-  # darwin/arm64: ["^oxlint-aarch64-apple-darwin\\.tar\\.gz$"]
+  darwin/amd64: ["^oxlint-x86_64-apple-darwin\\.tar\\.gz$"]
+  darwin/arm64: ["^oxlint-aarch64-apple-darwin\\.tar\\.gz$"]
   # Pass 3 — windows (.zip, not .tar.gz).
   # windows/amd64: ["^oxlint-x86_64-pc-windows-msvc\\.zip$"]
   # windows/arm64: ["^oxlint-aarch64-pc-windows-msvc\\.zip$"]
@@ -178,8 +178,8 @@ metadata:
   default: metadata.json
   platforms:
     linux/arm64: metadata-linux-arm64.json
-    # darwin/amd64: metadata-darwin-amd64.json
-    # darwin/arm64: metadata-darwin-arm64.json
+    darwin/amd64: metadata-darwin-amd64.json
+    darwin/arm64: metadata-darwin-arm64.json
     # windows/amd64: metadata-windows-amd64.json
     # windows/arm64: metadata-windows-arm64.json
 
@@ -207,10 +207,10 @@ platforms:
       - { image: "fedora:40", shell: bash }
   # Pass 2 — darwin. `macos-14` for BOTH slices (the amd64 one tests under
   # Rosetta 2); never native `macos-13`, whose exhausted pool deadlocks push.
-  # darwin/amd64:
-  #   runner: macos-14
-  # darwin/arm64:
-  #   runner: macos-14
+  darwin/amd64:
+    runner: macos-14
+  darwin/arm64:
+    runner: macos-14
   # Pass 3 — windows.
   # windows/amd64:
   #   runner: windows-latest

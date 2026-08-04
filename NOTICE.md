@@ -19,7 +19,7 @@ Published to `ghcr.io/ocx-contrib/oxc-project/oxlint`.
 
 | Component | SPDX | Holder |
 |---|---|---|
-| oxlint (`oxlint-<target-triple>`) | **MIT** | Copyright (c) 2023 Boshen and contributors |
+| oxlint (`oxlint-<target-triple>`) | **MIT** | Copyright (c) 2024-present VoidZero Inc. & Contributors; Copyright (c) 2023 Boshen |
 
 Verified at the license gate:
 
