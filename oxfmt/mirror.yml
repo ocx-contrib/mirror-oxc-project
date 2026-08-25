@@ -1,0 +1,205 @@
+name: oxfmt
+
+# Logical index package `oxc-project/oxfmt` at the physical path
+# `ghcr.io/ocx-contrib/oxc-project/oxfmt` — slash segments, never
+# hyphen-flattened, two segments always. Second package in this repo, under a
+# namespace `oxlint` already claimed; the first path segment must be this
+# repo's own GitHub owner, since GITHUB_TOKEN only authorises packages owned by
+# the repo the workflow runs in.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/oxc-project/oxfmt
+
+# ─── WHY url_index AND NOT github_release — THE VERSION IS NOT THE TAG ──────
+#
+# oxfmt ships inside the same `apps_vX.Y.Z` releases as its oxlint sibling (32
+# assets: 16 of each tool), but the tag carries OXLINT's version. Measured:
+#
+#   $ tar xf oxfmt-x86_64-unknown-linux-musl.tar.gz   # from tag apps_v1.80.0
+#   $ ./oxfmt-x86_64-unknown-linux-musl --version
+#   Version: 0.65.0                                   # <-- NOT 1.80.0
+#   (and at the floor: apps_v1.75.0 → 0.60.0)
+#
+# A `github_release` source takes the version from the tag, so it would publish
+# these bytes as `oxc-project/oxfmt:1.80.0` — a version the tool never reports
+# and no upstream document names. `scripts/generate.py` reads the version from
+# upstream's own `## Oxfmt vX.Y.Z` release-note heading instead, cross-checked
+# against the per-app `oxfmt_v*` tag pushed on the same commit (those tags
+# carry no assets, which is why they cannot be the source).
+#
+# THE COST, STATED: a url_index asset map carries no digests, so this spec
+# cannot set `verify.github_asset_digest` the way oxlint/mirror.yml does. The
+# URLs are upstream's own release-download links over HTTPS.
+#
+# `command` resolves against THIS spec's directory, so the path is
+# `scripts/generate.py`, not `oxfmt/scripts/generate.py`.
+source:
+  type: url_index
+  generator:
+    command: ["uv", "run", "scripts/generate.py"]
+    timeout_seconds: 240
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# `os.features` states what the artifact REQUIRES OF THE HOST, never how it was
+# built, and upstream ships BOTH a `-gnu` and a `-musl` build per Linux arch —
+# so the filename decides nothing and PT_INTERP does. Measured on apps_v1.80.0:
+#
+#   $ file oxfmt-x86_64-unknown-linux-musl
+#   ELF 64-bit LSB pie executable, x86-64, static-pie linked, stripped
+#   $ readelf -l oxfmt-x86_64-unknown-linux-musl | grep INTERP   → (none)
+#
+#   $ file oxfmt-x86_64-unknown-linux-gnu
+#   ELF 64-bit LSB pie executable, x86-64, dynamically linked,
+#   interpreter /lib64/ld-linux-x86-64.so.2, …
+#
+# The musl build is static-pie with no PT_INTERP: it requires nothing of the
+# host userland, so the Linux keys below are BARE — no `+libc.musl`, which
+# would be a REQUIREMENT the artifact does not have. The alpine container leg
+# is what turns that from an assertion into evidence.
+#
+# Only ONE Linux key per arch, and it is the musl one — same reasoning as the
+# oxlint sibling: `ocx.target_platform` exposes `.os` and `.arch` only, never
+# the `+libc.*` feature, and upstream names each archive member after its own
+# target triple. So one smoke.star cannot name the binary to run if a gnu and a
+# musl key both exist for `linux/amd64` — a `+libc.glibc` key here would be a
+# leg that cannot be tested honestly.
+#
+# ─── ARCHES ocx CANNOT EXPRESS ──────────────────────────────────────────────
+#
+# Upstream ships 16 oxfmt artifacts per release. ocx's `Architecture` enum is
+# amd64 + arm64 and its `OperatingSystem` enum is linux/darwin/windows, so
+# armv7-…-gnueabihf, armv7-…-musleabihf, i686-pc-windows-msvc, powerpc64le,
+# riscv64gc (gnu + musl), s390x and x86_64-unknown-freebsd are NOT declarable
+# platforms — out of scope, not missing. The six keys below are the complete
+# declarable set.
+
+assets:
+  # The generator emits ONLY these six filenames per version (it skips any
+  # release that cannot supply all six), so each pattern resolves to exactly
+  # one asset by construction — 0 matches would be a silently skipped platform,
+  # >1 a hard ambiguous-match error. Verified both ways at both ends of the
+  # range (0.60.0 and 0.65.0).
+  #
+  # The leading `^oxfmt-` still matters: the same upstream release carries 16
+  # `oxlint-<triple>` assets under IDENTICAL triples, and a pattern anchored on
+  # the triple alone would double-match if the generator's filter ever widened.
+  linux/amd64: ["^oxfmt-x86_64-unknown-linux-musl\\.tar\\.gz$"]
+  linux/arm64: ["^oxfmt-aarch64-unknown-linux-musl\\.tar\\.gz$"]
+  darwin/amd64: ["^oxfmt-x86_64-apple-darwin\\.tar\\.gz$"]
+  darwin/arm64: ["^oxfmt-aarch64-apple-darwin\\.tar\\.gz$"]
+  windows/amd64: ["^oxfmt-x86_64-pc-windows-msvc\\.zip$"]
+  windows/arm64: ["^oxfmt-aarch64-pc-windows-msvc\\.zip$"]
+
+# ─── ARCHIVE LAYOUT — flat, ONE file, named after the TARGET TRIPLE ─────────
+#
+#   $ tar tvf oxfmt-x86_64-unknown-linux-musl.tar.gz
+#   -rwxr-xr-x runner/runner 6525216 …  oxfmt-x86_64-unknown-linux-musl
+#   $ unzip -l oxfmt-x86_64-pc-windows-msvc.zip
+#    5675520  …  oxfmt-x86_64-pc-windows-msvc.exe
+#
+# One member, at the archive ROOT, no wrapper directory and no `bin/` —
+# identical at both ends of the range (checked on apps_v1.75.0 and
+# apps_v1.80.0). So `strip_components: 0` (1 would DELETE the binary) and the
+# metadata PATH is the bare `${installPath}`, which is legal only with
+# `bin_scan: off` — hence the hand-listed `binaries` per platform.
+#
+# ⚠ THE BINARY IS NOT CALLED `oxfmt`. Nothing in the pipeline renames an
+# archive member (`asset_type: archive` has no `name:` field, and
+# `strip_components` only removes leading path components), so this package
+# puts `oxfmt-<triple>` on PATH — upstream's bytes under upstream's own name.
+# CATALOG.md states the command name per platform for consumers.
+asset_type:
+  type: archive
+  strip_components: 0
+
+# QUOTED DELIBERATELY: unquoted `off` is a YAML 1.1 BOOLEAN (false), and the
+# spec then fails to load with the wholly misleading `missing field ` + "`name`".
+bin_scan: "off"
+
+metadata:
+  # `default` is the linux/amd64 shape; every declared platform is listed
+  # explicitly because the binary NAME differs per platform.
+  default: metadata.json
+  platforms:
+    linux/arm64: metadata-linux-arm64.json
+    darwin/amd64: metadata-darwin-amd64.json
+    darwin/arm64: metadata-darwin-arm64.json
+    windows/amd64: metadata-windows-amd64.json
+    windows/arm64: metadata-windows-arm64.json
+
+catalog:
+  # Resolves against this spec's own directory; the logo sits at the repo root
+  # and is shared with oxlint, so it must be named explicitly — the default
+  # probe looks only beside this file and a nested spec that omits this ships
+  # with no logo and no error.
+  logo: ../logo.svg
+
+platforms:
+  # Bare (static-claiming) Linux key ⇒ ubuntu + alpine + fedora: glibc twice
+  # and musl once. The alpine leg is the ONLY evidence that "requires nothing
+  # of the host" is honest. No `containers[].setup`: oxfmt shells out to
+  # nothing and links nothing beyond the kernel, so a stock image is the honest
+  # claim and provisioning one would prove less.
+  linux/amd64:
+    runner: ubuntu-latest
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20", shell: sh }
+      - { image: "fedora:40", shell: bash }
+  linux/arm64:
+    runner: ubuntu-24.04-arm      # arm64 legs run natively — no qemu
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20", shell: sh }
+      - { image: "fedora:40", shell: bash }
+  # `macos-14` for BOTH slices (the amd64 one tests under Rosetta 2); never
+  # native `macos-13`, whose exhausted pool deadlocks push.
+  darwin/amd64:
+    runner: macos-14
+  darwin/arm64:
+    runner: macos-14
+  # `windows-11-arm` is the arm64 runner; `windows-latest` is amd64-only. The
+  # zip member already carries `.exe`, so no name override is needed —
+  # tests/smoke.star branches to the `.exe` name on Windows.
+  windows/amd64:
+    runner: windows-latest
+  windows/arm64:
+    runner: windows-11-arm
+
+tests:
+  # `script:` resolves from the REPOSITORY ROOT, unlike `metadata`/`catalog`
+  # just above, which resolve from this spec's own directory.
+  - name: smoke
+    script: oxfmt/tests/smoke.star
+
+versions:
+  # oxfmt's OWN version (see the source block) — 0.60.0 is what apps_v1.75.0
+  # ships, the same release the oxlint sibling floors at. Below it the index
+  # thins out: apps_v1.53.0/1.52.0/1.47.0 carry no oxfmt assets at all, and
+  # apps_v1.43.0 and older name the archives by OS/arch instead of by target
+  # triple.
+  min: "0.60.0"
+  new_per_run: 5
+  # Hash-staggered slot for `oxc-project/oxfmt`
+  # (`.claude/skills/create-mirror/scripts/poll_stagger.py`) — a different slot
+  # from oxlint's `0 0-23/6`, which is the point: fleet-synchronized crons
+  # burst-push to GHCR together and trip its secondary rate limit. Without a
+  # poll_interval the generated workflow has NO `schedule:` trigger at all and
+  # the mirror never auto-discovers a release.
+  poll_interval: "40 3-23/6 * * *"
+
+skip_prereleases: true
+cascade: true
+build_timestamp: date
+
+annotations:
+  org.opencontainers.image.licenses: MIT
+
+announce:
+  package: oxc-project/oxfmt
+  fork: ocx-contrib/index
+
+notify:
+  discord:
+    webhook_secret: OCX_MIRROR_DISCORD_HOOK

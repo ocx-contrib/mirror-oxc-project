@@ -3,3 +3,7 @@
 [tools]
 cli    = "ocx.sh/ocx/cli:0.5"
 mirror = "ocx.sh/ocx/mirror:0.5"
+# The oxfmt spec is a `url_index` source whose generator is a Python script,
+# so the generator runtime is part of the toolchain. Namespaced coordinate —
+# the flat `ocx.sh/uv:0` is retired.
+uv     = "ocx.sh/astral-sh/uv:0"

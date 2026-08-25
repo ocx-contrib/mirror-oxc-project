@@ -9,6 +9,7 @@ own license, recorded below.
 | Package | GHCR path | Upstream SPDX |
 |---|---|---|
 | `oxlint` | `ghcr.io/ocx-contrib/oxc-project/oxlint` | `MIT` |
+| `oxfmt` | `ghcr.io/ocx-contrib/oxc-project/oxfmt` | `MIT` |
 
 ---
 
@@ -41,6 +42,27 @@ writes onto every published manifest rather than by a file inside the bundle.
 
 The published binaries statically link third-party Rust crates under permissive
 licenses, enumerated in upstream's `Cargo.lock` and `THIRD-PARTY-LICENSE`.
+
+## `oxfmt`
+
+Upstream: <https://github.com/oxc-project/oxc>
+Published to `ghcr.io/ocx-contrib/oxc-project/oxfmt`.
+
+| Component | SPDX | Holder |
+|---|---|---|
+| oxfmt (`oxfmt-<target-triple>`) | **MIT** | Copyright (c) 2024-present VoidZero Inc. & Contributors; Copyright (c) 2023 Boshen |
+
+Same license, same monorepo and same release train as `oxlint` above: oxfmt has
+no repository and no license file of its own, and its archives contain the
+executable alone with no `LICENSE` file beside it. The notice-retention
+condition is satisfied by this file and by the
+`org.opencontainers.image.licenses: MIT` annotation the pipeline writes onto
+every published manifest.
+
+Note on versions: this package is versioned by oxfmt's OWN version (`0.65.0`),
+which is not the `apps_vX.Y.Z` tag it ships under (that tag carries oxlint's
+version). The mapping is upstream's own `## Oxfmt vX.Y.Z` release-note heading;
+`oxfmt/scripts/generate.py` records how it is derived and cross-checked.
 
 ## Logo
 
