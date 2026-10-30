@@ -205,12 +205,12 @@ platforms:
       - { image: "ubuntu:24.04", shell: bash }
       - { image: "alpine:3.20", shell: sh }
       - { image: "fedora:40", shell: bash }
-  # Pass 2 — darwin. `macos-14` for BOTH slices (the amd64 one tests under
+  # Pass 2 — darwin. `macos-15` for BOTH slices (the amd64 one tests under
   # Rosetta 2); never native `macos-13`, whose exhausted pool deadlocks push.
   darwin/amd64:
-    runner: macos-14
+    runner: macos-15
   darwin/arm64:
-    runner: macos-14
+    runner: macos-15
   # `windows-11-arm` is the arm64 runner; `windows-latest` is amd64-only. The
   # zip member already carries `.exe` (verified by a windows-only temp-spec
   # `pipeline prepare` before any runner was spent), so no name override is
